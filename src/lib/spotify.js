@@ -1,7 +1,8 @@
-// Spotify Auth & API Utilities
+// Spotify Auth & API Utilities with PKCE Flow
 
 const authEndpoint = "https://accounts.spotify.com/authorize";
-const redirectUri = window.location.origin + '/music'; // Match the exact dashboard configuration
+const tokenEndpoint = "https://accounts.spotify.com/api/token";
+const redirectUri = window.location.origin + '/music';
 const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 
 const scopes = [
@@ -14,28 +15,72 @@ const scopes = [
     "user-modify-playback-state",
 ];
 
-// Construct URL using URLSearchParams to ensure correct encoding
-const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    scope: scopes.join(" "),
-    response_type: "token",
-    show_dialog: "true",
-});
-
-export const loginUrl = `${authEndpoint}?${params.toString()}`;
-
-export const getTokenFromUrl = () => {
-    return window.location.hash
-        .substring(1)
-        .split("&")
-        .reduce((initial, item) => {
-            let parts = item.split("=");
-            initial[parts[0]] = decodeURIComponent(parts[1]);
-            return initial;
-        }, {});
+// PKCE Helpers
+const generateRandomString = (length) => {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
 };
 
+const sha256 = async (plain) => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(plain);
+    return window.crypto.subtle.digest('SHA-256', data);
+};
+
+const base64encode = (input) => {
+    return btoa(String.fromCharCode(...new Uint8Array(input)))
+        .replace(/=/g, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_');
+};
+
+export const initiateLogin = async () => {
+    const codeVerifier = generateRandomString(128);
+    const hashed = await sha256(codeVerifier);
+    const codeChallenge = base64encode(hashed);
+
+    // Save verifier for later use
+    window.localStorage.setItem('spotify_code_verifier', codeVerifier);
+
+    const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: clientId,
+        scope: scopes.join(' '),
+        code_challenge_method: 'S256',
+        code_challenge: codeChallenge,
+        redirect_uri: redirectUri,
+    });
+
+    window.location.href = `${authEndpoint}?${params.toString()}`;
+};
+
+export const getTokenFromCode = async (code) => {
+    const codeVerifier = window.localStorage.getItem('spotify_code_verifier');
+
+    const payload = {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            client_id: clientId,
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: redirectUri,
+            code_verifier: codeVerifier,
+        }),
+    };
+
+    const body = await fetch(tokenEndpoint, payload);
+    const response = await body.json();
+    return response;
+};
+
+// ... Existing API functions ...
 export const spotifyApi = {
     search: async (query, token) => {
         const res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=20`, {

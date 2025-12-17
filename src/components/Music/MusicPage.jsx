@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaSearch, FaPlay, FaPause, FaStepForward, FaStepBackward, FaHeart, FaRegHeart, FaRandom, FaRedo, FaCompactDisc, FaChevronDown, FaSpotify } from 'react-icons/fa';
 import { supabase } from '../../lib/supabaseClient';
-import { loginUrl, getTokenFromUrl, spotifyApi } from '../../lib/spotify';
+import { initiateLogin, spotifyApi, getTokenFromCode } from '../../lib/spotify';
 
 const MusicPage = () => {
     // Auth State
@@ -25,17 +25,38 @@ const MusicPage = () => {
 
     // Auth & Player Init
     useEffect(() => {
-        const hash = getTokenFromUrl();
-        window.location.hash = "";
-        const _token = hash.access_token || localStorage.getItem('spotify_token');
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const _token = localStorage.getItem('spotify_token');
 
-        if (_token) {
+        const handleToken = async (codeToExchange) => {
+            // Remove code from URL for cleaner look
+            window.history.pushState({}, null, '/music');
+
+            try {
+                const data = await getTokenFromCode(codeToExchange);
+                if (data.access_token) {
+                    setToken(data.access_token);
+                    localStorage.setItem('spotify_token', data.access_token);
+                    // Also save refresh token if needed later
+                    initializeSpotifyPlayer(data.access_token);
+                    fetchLibrary();
+                }
+            } catch (e) {
+                console.error("Token Exchange Error", e);
+            }
+        };
+
+        if (code) {
+            handleToken(code);
+        } else if (_token) {
             setToken(_token);
-            localStorage.setItem('spotify_token', _token);
             initializeSpotifyPlayer(_token);
             fetchLibrary();
         }
     }, []);
+
+    // ... existing initialization ...
 
     const initializeSpotifyPlayer = (accessToken) => {
         if (window.Spotify) return; // Already loaded
@@ -169,9 +190,9 @@ const MusicPage = () => {
                     <FaSpotify className="text-6xl text-[#1DB954] mx-auto mb-6" />
                     <h1 className="text-3xl font-bold mb-4">Connect with Spotify</h1>
                     <p className="text-white/60 mb-8">Unlock full song playback and access your portfolio library directly.</p>
-                    <a href={loginUrl} className="block w-full py-4 bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold rounded-full transition-all transform hover:scale-105">
+                    <button onClick={initiateLogin} className="block w-full py-4 bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold rounded-full transition-all transform hover:scale-105">
                         Login to Spotify
-                    </a>
+                    </button>
                     <p className="text-xs text-white/30 mt-4">Requires Spotify Premium for Web Playback</p>
                 </div>
             </div>
