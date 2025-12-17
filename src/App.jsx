@@ -33,7 +33,7 @@ const AppContent = () => {
   const location = useLocation();
 
   return (
-    <div className="bg-dark min-h-screen cursor-none">
+    <div className="bg-dark min-h-screen">
       <AnimatePresence mode="wait">
         {isLoading && <Preloader setIsLoading={setIsLoading} />}
       </AnimatePresence>
@@ -41,7 +41,6 @@ const AppContent = () => {
       {!isLoading && (
         <>
           <SmoothScroll />
-          <CustomCursor />
           {/* Background persists across routes */}
           <ParticlesBackground />
 

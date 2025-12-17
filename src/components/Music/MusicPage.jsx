@@ -1,140 +1,88 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaSearch, FaPlay, FaPause, FaStepForward, FaStepBackward, FaHeart, FaRegHeart, FaRandom, FaRedo, FaCompactDisc, FaChevronDown, FaSpotify } from 'react-icons/fa';
+import { FaPlay, FaPause, FaStepForward, FaStepBackward, FaHeart, FaTrash, FaChevronDown, FaYoutube, FaPlus, FaSearch, FaMusic } from 'react-icons/fa';
 import { supabase } from '../../lib/supabaseClient';
-import { initiateLogin, spotifyApi, getTokenFromCode } from '../../lib/spotify';
 
 const MusicPage = () => {
-    // Auth State
-    const [token, setToken] = useState(null);
-    const [deviceId, setDeviceId] = useState(null);
-    const [player, setPlayer] = useState(null);
-
     // App State
-    const [query, setQuery] = useState('');
-    const [results, setResults] = useState([]);
     const [library, setLibrary] = useState([]);
+    const [searchResults, setSearchResults] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [view, setView] = useState('discover'); // 'discover' | 'library'
+    const [inputValue, setInputValue] = useState('');
+    const [mode, setMode] = useState('library'); // 'library' | 'search'
 
-    // Player State
     // Player State
     const [currentTrack, setCurrentTrack] = useState(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [isPlayerOpen, setIsPlayerOpen] = useState(false);
     const [queue, setQueue] = useState([]);
-    const [isPremium, setIsPremium] = useState(() => {
-        const saved = localStorage.getItem('spotify_is_premium');
-        return saved !== null ? JSON.parse(saved) : true;
-    });
 
-    // We can keep audioRef if we ever need it, but for now we rely on YouTube for free mode
+    // Lyrics & Time State
+    const [lyricsData, setLyricsData] = useState([]); // Array of { time, text }
+    const [hasSyncedLyrics, setHasSyncedLyrics] = useState(false);
+    const [plainLyrics, setPlainLyrics] = useState('');
+    const [lyricsLoading, setLyricsLoading] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+
+    // Audio Ref
     const audioRef = useRef(new Audio());
+    // Ref for active lyric line to scroll to
+    const activeLyricRef = useRef(null);
 
-    // Auth & Player Init
+    // Init Library & Audio Listeners
     useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        const _token = localStorage.getItem('spotify_token');
+        fetchLibrary();
 
-        const handleToken = async (codeToExchange) => {
-            // Remove code from URL for cleaner look
-            window.history.pushState({}, null, '/music');
-
-            try {
-                const data = await getTokenFromCode(codeToExchange);
-                if (data.access_token) {
-                    setToken(data.access_token);
-                    localStorage.setItem('spotify_token', data.access_token);
-                    // Also save refresh token if needed later
-                    initializeSpotifyPlayer(data.access_token);
-                    fetchLibrary();
-                }
-            } catch (e) {
-                console.error("Token Exchange Error", e);
-            }
-        };
-
-        if (code) {
-            handleToken(code);
-        } else if (_token) {
-            setToken(_token);
-            initializeSpotifyPlayer(_token);
-            fetchLibrary();
-        }
-    }, []);
-
-    // ... existing initialization ...
-
-    const initializeSpotifyPlayer = (accessToken) => {
-        const createPlayer = () => {
-            const newPlayer = new window.Spotify.Player({
-                name: 'Antigravity Portfolio Player',
-                getOAuthToken: cb => { cb(accessToken); },
-                volume: 0.5
-            });
-
-            newPlayer.addListener('ready', ({ device_id }) => {
-                console.log('Ready with Device ID', device_id);
-                setDeviceId(device_id);
-            });
-
-            newPlayer.addListener('not_ready', ({ device_id }) => {
-                console.log('Device ID has gone offline', device_id);
-            });
-
-            newPlayer.addListener('initialization_error', ({ message }) => {
-                console.error('Failed to initialize', message);
-            });
-
-            newPlayer.addListener('authentication_error', ({ message }) => {
-                console.error('Failed to authenticate', message);
-            });
-
-            newPlayer.addListener('account_error', ({ message }) => {
-                console.warn('Account Error (Non-Premium)', message);
-                setIsPremium(false);
-                localStorage.setItem('spotify_is_premium', 'false');
-            });
-
-            newPlayer.addListener('player_state_changed', (state) => {
-                if (!state) return;
-                setIsPlaying(!state.paused);
-            });
-
-            newPlayer.connect();
-            setPlayer(newPlayer);
-        };
-
-        if (window.Spotify) {
-            createPlayer();
-        } else {
-            window.onSpotifyWebPlaybackSDKReady = createPlayer;
-            const script = document.createElement("script");
-            script.src = "https://sdk.scdn.co/spotify-player.js";
-            script.async = true;
-            document.body.appendChild(script);
-        }
-    };
-
-    // Initialize HTML5 Audio events
-    useEffect(() => {
         const audio = audioRef.current;
-        const handleEnded = () => setIsPlaying(false);
-        const handlePlay = () => setIsPlaying(true);
-        const handlePause = () => setIsPlaying(false);
+        const onEnded = () => setIsPlaying(false);
+        const onError = (e) => {
+            console.error("Audio Error", e);
+            setIsPlaying(false);
+            // alert("Unable to play preview.");
+        };
 
-        audio.addEventListener('ended', handleEnded);
-        audio.addEventListener('play', handlePlay);
-        audio.addEventListener('pause', handlePause);
+        // Time Update for Synced Lyrics & Progress Bar
+        const onTimeUpdate = () => {
+            setCurrentTime(audio.currentTime);
+        };
+
+        const onLoadedMetadata = () => {
+            setDuration(audio.duration);
+        };
+
+        audio.addEventListener('ended', onEnded);
+        audio.addEventListener('error', onError);
+        audio.addEventListener('timeupdate', onTimeUpdate);
+        audio.addEventListener('loadedmetadata', onLoadedMetadata);
 
         return () => {
-            audio.removeEventListener('ended', handleEnded);
-            audio.removeEventListener('play', handlePlay);
-            audio.removeEventListener('pause', handlePause);
+            audio.removeEventListener('ended', onEnded);
+            audio.removeEventListener('error', onError);
+            audio.removeEventListener('timeupdate', onTimeUpdate);
+            audio.removeEventListener('loadedmetadata', onLoadedMetadata);
             audio.pause();
+            audio.src = "";
         };
     }, []);
+
+    // Auto-scroll lyrics
+    useEffect(() => {
+        if (activeLyricRef.current) {
+            activeLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [currentTime]);
+
+    // Toggle Play/Pause when state changes
+    useEffect(() => {
+        if (currentTrack && audioRef.current.src) {
+            if (isPlaying) {
+                audioRef.current.play().catch(e => console.warn("Play interrupted", e));
+            } else {
+                audioRef.current.pause();
+            }
+        }
+    }, [isPlaying]);
 
     const fetchLibrary = async () => {
         if (!supabase) return;
@@ -142,130 +90,207 @@ const MusicPage = () => {
         if (!error && data) setLibrary(data);
     };
 
-    const searchMusic = async (e) => {
-        e.preventDefault();
-        if (!query.trim() || !token) return;
-        setLoading(true);
-        setView('discover');
+    const parseLRC = (lrcString) => {
+        const lines = lrcString.split('\n');
+        const regex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/;
+        const result = [];
+
+        for (const line of lines) {
+            const match = line.match(regex);
+            if (match) {
+                const minutes = parseInt(match[1], 10);
+                const seconds = parseInt(match[2], 10);
+                const milliseconds = parseInt(match[3].length === 3 ? match[3] : match[3] + '0', 10); // Normalizing ms
+                const time = minutes * 60 + seconds + milliseconds / 1000;
+                const text = match[4].trim();
+                if (text) result.push({ time, text });
+            }
+        }
+        return result;
+    };
+
+    const fetchLyrics = async (artist, title) => {
+        setLyricsLoading(true);
+        setHasSyncedLyrics(false);
+        setLyricsData([]);
+        setPlainLyrics('');
 
         try {
-            const data = await spotifyApi.search(query, token);
-            if (data.tracks) {
-                setResults(data.tracks.items);
+            const res = await fetch(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`);
+            if (res.ok) {
+                const data = await res.json();
+
+                if (data.syncedLyrics) {
+                    setLyricsData(parseLRC(data.syncedLyrics));
+                    setHasSyncedLyrics(true);
+                } else if (data.plainLyrics) {
+                    setPlainLyrics(data.plainLyrics);
+                } else {
+                    setPlainLyrics("Lyrics not found.");
+                }
+            } else {
+                // Fallback search
+                const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(title + " " + artist)}`);
+                if (searchRes.ok) {
+                    const searchData = await searchRes.json();
+                    if (searchData && searchData.length > 0) {
+                        const firstHit = searchData[0];
+                        if (firstHit.syncedLyrics) {
+                            setLyricsData(parseLRC(firstHit.syncedLyrics));
+                            setHasSyncedLyrics(true);
+                        } else {
+                            setPlainLyrics(firstHit.plainLyrics || "Lyrics not found.");
+                        }
+                    } else {
+                        setPlainLyrics("Lyrics not found.");
+                    }
+                }
             }
+        } catch (e) {
+            console.error("Lyrics Error", e);
+            setPlainLyrics("Could not load lyrics.");
+        } finally {
+            setLyricsLoading(false);
+        }
+    };
+
+    const searchiTunes = async (e) => {
+        e.preventDefault();
+        if (!inputValue.trim()) return;
+        setLoading(true);
+        setMode('search');
+
+        try {
+            const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(inputValue)}&media=music&entity=song&limit=20`);
+            const data = await res.json();
+            setSearchResults(data.results);
         } catch (err) {
-            console.error("Search Error", err);
-            if (err.status === 401) logout(); // Token expired
+            console.error(err);
+            // alert("Search failed. Please try again.");
         } finally {
             setLoading(false);
         }
     };
 
-    const playTrack = async (track, list) => {
-        if (!token) return;
-
-        // Normalize Track Data
-        const isSpotifyObj = track.artists && Array.isArray(track.artists);
-
-        const normalizedTrack = isSpotifyObj ? {
-            title: track.name,
-            artist: track.artists[0].name,
-            cover_url: track.album.images[0]?.url,
-            uri: track.uri,
-            track_id: track.id,
-            id: track.id,
-            preview_url: track.preview_url
-        } : {
-            ...track,
-            id: track.track_id || track.id
-        };
-
-        setQueue(list || [normalizedTrack]);
-        setCurrentTrack(normalizedTrack);
-        setIsPlayerOpen(true);
-
-        // Stop any HTML5 audio if it was running (cleanup)
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-        }
-
-        // Premium Playback via SDK
-        if (isPremium && deviceId) {
-            try {
-                await spotifyApi.play(token, deviceId, normalizedTrack.uri);
-            } catch (e) {
-                console.error("Spotify Play Error", e);
-            }
-        }
-        // Non-Premium: Do nothing. The UI renders the YouTube iframe which Autoplays.
-    };
-
-    const togglePlay = () => {
-        if (isPremium && player) {
-            player.togglePlay();
-        }
-        // YouTube iframe handles its own play/pause via its own controls
-    };
-
-    const handleNext = () => {
-        if (player) player.nextTrack();
-    };
-
-    const handlePrev = () => {
-        if (player) player.previousTrack();
-    };
-
-    const logout = () => {
-        setToken(null);
-        localStorage.removeItem('spotify_token');
-        window.location.reload();
-    };
-
-    const saveSong = async (track) => {
-        if (!supabase) return;
-        // Check duplicates logic...
+    const playFromSearch = (track) => {
         const newSong = {
-            title: track.name || track.title,
-            artist: (track.artists ? track.artists[0].name : track.artist),
-            album: (track.album ? track.album.name : track.album),
-            cover_url: (track.album ? track.album.images[0].url : track.cover_url),
-            uri: track.uri,
-            track_id: track.id || track.track_id,
-            preview_url: track.preview_url || null
+            title: track.trackName,
+            artist: track.artistName,
+            album: track.collectionName,
+            cover_url: track.artworkUrl100.replace('100x100bb', '500x500bb'),
+            uri: '',
+            track_id: track.trackId.toString(),
+            preview_url: track.previewUrl,
+            youtube_id: null
+        };
+        playTrack(newSong, searchResults);
+    };
+
+    const saveToLibrary = async (track) => {
+        if (!supabase || !track) return;
+
+        console.log("Saving track...", track);
+
+        const isDuplicate = library.some(item => item.track_id === track.track_id);
+        if (isDuplicate) {
+            console.log("Already in library");
+            return;
+        }
+
+        // REMOVED 'uri' and 'preview_url' to match existing DB Schema.
+        const songToSave = {
+            title: track.title,
+            artist: track.artist,
+            album: track.album || 'Single',
+            cover_url: track.cover_url,
+            track_id: track.track_id,
+            youtube_id: ''
         };
 
-        const { error } = await supabase.from('songs').insert([newSong]);
+        const { error } = await supabase.from('songs').insert([songToSave]);
+        if (error) {
+            console.error("Save Error:", error);
+        } else {
+            console.log("Saved.");
+            fetchLibrary();
+        }
+    };
+
+    const deleteSong = async (id, e) => {
+        e.stopPropagation();
+        const { error } = await supabase.from('songs').delete().eq('id', id);
         if (!error) fetchLibrary();
     };
 
-    const isLoved = (trackId) => library.some(s => s.track_id === trackId);
+    const playTrack = async (track, list) => {
+        audioRef.current.pause();
+        setIsPlaying(false);
+        setLyricsData([]);
+        setPlainLyrics('');
+        setCurrentTime(0);
 
-    // If NOT logged in, show Landing
-    if (!token) {
-        return (
-            <div className="min-h-screen bg-[#050511] text-white flex flex-col items-center justify-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1614149162883-504ce4d13909?q=80&w=2574&auto=format&fit=crop')] bg-cover bg-center opacity-20 blur-sm" />
-                <div className="relative z-10 text-center p-8 bg-black/40 backdrop-blur-xl rounded-3xl border border-white/10 max-w-md w-full">
-                    <FaSpotify className="text-6xl text-[#1DB954] mx-auto mb-6" />
-                    <h1 className="text-3xl font-bold mb-4">Connect with Spotify</h1>
-                    <p className="text-white/60 mb-8">Unlock full song playback and access your portfolio library directly.</p>
-                    <button onClick={initiateLogin} className="block w-full py-4 bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold rounded-full transition-all transform hover:scale-105">
-                        Login to Spotify
-                    </button>
-                    <p className="text-xs text-white/30 mt-4">Requires Spotify Premium for Web Playback</p>
-                </div>
-            </div>
-        );
-    }
+        setQueue(list || [track]);
+        setCurrentTrack(track);
+        setIsPlayerOpen(true);
 
-    // Main Player UI (Same as before but hooked to Spotify)
+        fetchLyrics(track.artist, track.title);
+
+        // 1. Try built-in preview_url (search result)
+        // 2. Try 'uri' if explicitly present
+        let audioSrc = track.preview_url || (track.uri && track.uri.startsWith('http') ? track.uri : null);
+
+        // 3. Fallback: If no audio source but we have an iTunes track_id, fetch it live (saved items)
+        if (!audioSrc && track.track_id) {
+            try {
+                console.log("Fetching preview for:", track.track_id);
+                // Lookup detailed info from iTunes
+                const res = await fetch(`https://itunes.apple.com/lookup?id=${track.track_id}`);
+                const data = await res.json();
+                if (data.results && data.results.length > 0) {
+                    audioSrc = data.results[0].previewUrl;
+                }
+            } catch (e) {
+                console.error("iTunes Lookup Failed", e);
+            }
+        }
+
+        if (audioSrc) {
+            audioRef.current.src = audioSrc;
+            audioRef.current.volume = 1.0;
+            // Safari/Chrome autoplay policies might block this without user gesture, but click is a gesture.
+            try {
+                await audioRef.current.play();
+                setIsPlaying(true);
+            } catch (e) { console.error(e); }
+        } else {
+            console.warn("No preview available.");
+        }
+    };
+
+    const handleNext = () => { /* alert("Next (To Be Implemented)"); */ };
+    const handlePrev = () => { /* alert("Prev (To Be Implemented)"); */ };
+
+    const formatTime = (time) => {
+        if (isNaN(time)) return "0:00";
+        const min = Math.floor(time / 60);
+        const sec = Math.floor(time % 60);
+        return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+    };
+
+    // Find active lyric index
+    const activeLyricIndex = hasSyncedLyrics
+        ? lyricsData.findIndex((line, index) => {
+            const nextLine = lyricsData[index + 1];
+            return line.time <= currentTime && (!nextLine || nextLine.time > currentTime);
+        })
+        : -1;
+
     return (
-        <div className="min-h-screen bg-[#050511] text-white overflow-hidden relative font-sans selection:bg-indigo-500/30">
+        <div className="min-h-screen bg-[#050511] text-white overflow-hidden relative font-sans selection:bg-red-500/30">
             {/* Background Ambience */}
             <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
                 <motion.div
-                    key={currentTrack?.cover_url}
+                    key={currentTrack?.track_id}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 0.3 }}
                     transition={{ duration: 1.5 }}
@@ -284,81 +309,126 @@ const MusicPage = () => {
                         transition={{ type: "spring", damping: 25, stiffness: 200 }}
                         className="fixed inset-0 z-50 bg-[#090909] overflow-y-auto"
                     >
-                        <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-30">
-                            <img src={currentTrack.cover_url} className="w-full h-full object-cover blur-[100px] scale-125" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-[#090909]/80 to-black/40" />
-                        </div>
+                        <div className="relative z-10 min-h-screen p-6 flex flex-col justify-center items-center">
+                            <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+                                {/* Left: Player UI */}
+                                <div className="flex flex-col gap-8 w-full max-w-lg mx-auto">
+                                    <div className="relative aspect-square rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 group">
+                                        <img src={currentTrack.cover_url} className="w-full h-full object-cover" />
+                                        {/* Visualizer Overlay */}
+                                        <div className={`absolute inset-0 bg-black/20 flex items-center justify-center ${isPlaying ? 'animate-pulse' : ''}`}>
+                                            <div className={`w-32 h-32 rounded-full border-4 border-white/30 flex items-center justify-center ${isPlaying ? 'animate-spin-slow' : ''}`}>
+                                                <div className="w-2 h-2 bg-white rounded-full"></div>
+                                            </div>
+                                        </div>
+                                    </div>
 
-                        <div className="relative z-10 min-h-screen p-6 flex flex-col">
-                            <div className="max-w-5xl mx-auto w-full h-full flex flex-col">
-                                {/* Top Bar */}
-                                <div className="flex justify-between items-center mb-4 shrink-0">
-                                    <span className="text-xs font-bold tracking-widest text-[#1DB954] uppercase flex items-center gap-2">
-                                        {isPremium ? <FaSpotify /> : <FaSpotify className="text-gray-400" />}
-                                        {isPremium ? 'Premium Player' : 'Free Mode (YouTube)'}
-                                    </span>
-                                    <button onClick={() => setIsPlayerOpen(false)} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/20 transition-all">
-                                        <FaChevronDown />
-                                    </button>
+                                    <div className="space-y-6 text-center">
+                                        <div className="space-y-2">
+                                            <h2 className="text-3xl md:text-4xl font-bold leading-tight">{currentTrack.title}</h2>
+                                            <p className="text-xl text-white/50">{currentTrack.artist}</p>
+                                        </div>
+
+                                        {/* REAL ProgressBar */}
+                                        <div className="space-y-2">
+                                            <div
+                                                className="w-full h-2 bg-white/10 rounded-full overflow-hidden cursor-pointer"
+                                                onClick={(e) => {
+                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                    const pos = (e.clientX - rect.left) / rect.width;
+                                                    audioRef.current.currentTime = pos * duration;
+                                                }}
+                                            >
+                                                <div
+                                                    className="h-full bg-red-600 relative transition-all duration-100 ease-linear"
+                                                    style={{ width: `${(currentTime / duration) * 100}%` }}
+                                                ></div>
+                                            </div>
+                                            <div className="flex justify-between text-xs font-mono text-white/40">
+                                                <span>{formatTime(currentTime)}</span>
+                                                <span>{formatTime(duration)}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-center gap-8">
+                                            <button onClick={handlePrev} className="text-3xl hover:text-white text-white/60 transition-colors"><FaStepBackward /></button>
+                                            <button
+                                                onClick={() => setIsPlaying(!isPlaying)}
+                                                className="w-20 h-20 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shadow-xl"
+                                            >
+                                                {isPlaying ? <FaPause /> : <FaPlay className="ml-1" />}
+                                            </button>
+                                            <button onClick={handleNext} className="text-3xl hover:text-white text-white/60 transition-colors"><FaStepForward /></button>
+                                        </div>
+
+                                        <div className="flex gap-4 justify-center">
+                                            <button onClick={() => setIsPlayerOpen(false)} className="px-6 py-2 rounded-full border border-white/20 hover:bg-white/10 transition-colors text-sm font-bold uppercase tracking-wider">
+                                                Close
+                                            </button>
+                                            <button
+                                                onClick={() => saveToLibrary(currentTrack)}
+                                                className={`px-6 py-2 rounded-full transition-colors text-sm font-bold uppercase tracking-wider flex items-center gap-2 ${library.some(i => i.track_id === currentTrack.track_id) ? 'bg-red-600 text-white' : 'bg-white/10 hover:bg-white/20'}`}
+                                            >
+                                                <FaHeart /> {library.some(i => i.track_id === currentTrack.track_id) ? 'Saved' : 'Save'}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Main Content Grid */}
-                                <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-                                    {/* Details */}
-                                    <div className="lg:col-span-7 flex flex-col justify-center h-full min-h-[40vh]">
-                                        <div className="space-y-6 text-xl md:text-2xl font-bold leading-relaxed max-w-xl">
-                                            <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">{currentTrack.title}</h1>
-                                            <p className="text-2xl text-white/50">{currentTrack.artist}</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Controls Right */}
-                                    <div className="lg:col-span-5 flex flex-col bg-white/5 rounded-3xl p-6 backdrop-blur-md border border-white/5">
-                                        <div className={`w-full mx-auto rounded-xl overflow-hidden shadow-2xl relative mb-6 shrink-0 bg-black ${isPremium ? 'aspect-square' : 'aspect-video'}`}>
-                                            {isPremium ? (
-                                                <img src={currentTrack.cover_url} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <iframe
-                                                    className="w-full h-full"
-                                                    src={`https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(currentTrack.title + " " + currentTrack.artist + " audio")}&autoplay=1&cc_load_policy=1`}
-                                                    frameBorder="0"
-                                                    allow="autoplay; encrypted-media"
-                                                    allowFullScreen
-                                                    title="YouTube Player"
-                                                />
-                                            )}
-                                        </div>
-
-                                        {isPremium && (
-                                            <div className="flex items-center justify-center gap-6 mt-4">
-                                                <button onClick={handlePrev} className="text-3xl hover:text-white text-white/80 transition-colors"><FaStepBackward /></button>
-                                                <button onClick={togglePlay} className="w-16 h-16 rounded-full bg-[#1DB954] text-black flex items-center justify-center hover:scale-105 transition-transform shadow-xl">
-                                                    {isPlaying ? <FaPause size={24} /> : <FaPlay size={24} className="ml-1" />}
-                                                </button>
-                                                <button onClick={handleNext} className="text-3xl hover:text-white text-white/80 transition-colors"><FaStepForward /></button>
+                                {/* Right: Lyrics UI (Synced) */}
+                                <div className="hidden lg:block h-full min-h-[500px] bg-white/5 rounded-3xl p-8 border border-white/10 relative overflow-hidden">
+                                    <h3 className="text-xs font-bold text-white/40 uppercase tracking-widest mb-6 sticky top-0 bg-transparent z-10 w-full text-center">Lyrics</h3>
+                                    <div className="absolute inset-0 overflow-y-auto p-8 pt-16 custom-scrollbar text-center">
+                                        {lyricsLoading ? (
+                                            <div className="flex items-center justify-center h-full">
+                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
                                             </div>
+                                        ) : hasSyncedLyrics ? (
+                                            <div className="space-y-6 pb-40">
+                                                {lyricsData.map((line, i) => (
+                                                    <p
+                                                        key={i}
+                                                        ref={i === activeLyricIndex ? activeLyricRef : null}
+                                                        className={`text-xl md:text-2xl transition-all duration-300 font-bold cursor-pointer hover:text-white ${i === activeLyricIndex ? 'text-white scale-105' : 'text-white/20 blur-[0.5px]'}`}
+                                                        onClick={() => {
+                                                            audioRef.current.currentTime = line.time;
+                                                        }}
+                                                    >
+                                                        {line.text}
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xl leading-loose text-white/80 whitespace-pre-wrap font-medium pb-20">
+                                                {plainLyrics}
+                                            </p>
                                         )}
-                                        {!isPremium && (
-                                            <div className="flex flex-col items-center mt-4 gap-4">
-                                                <div className="flex items-center justify-center gap-8">
-                                                    <button onClick={handlePrev} className="text-3xl hover:text-white text-white/80 transition-colors" title="Previous Song">
-                                                        <FaStepBackward />
-                                                    </button>
-
-                                                    <div className="px-4 py-2 rounded-full bg-red-600/20 border border-red-600/50 text-red-500 font-bold text-xs flex items-center gap-2">
-                                                        <span>YouTube Mode</span>
-                                                    </div>
-
-                                                    <button onClick={handleNext} className="text-3xl hover:text-white text-white/80 transition-colors" title="Next Song">
-                                                        <FaStepForward />
-                                                    </button>
-                                                </div>
-                                                <p className="text-[10px] text-white/30 uppercase tracking-widest">
-                                                    Use video controls to Pause/Seek
+                                    </div>
+                                </div>
+                                {/* Mobile Lyrics */}
+                                <div className="lg:hidden w-full bg-white/5 rounded-3xl p-6 border border-white/10 mt-4 text-center">
+                                    <h3 className="text-xs font-bold text-white/40 uppercase tracking-widest mb-4">Lyrics</h3>
+                                    {lyricsLoading ? (
+                                        <div className="flex items-center justify-center h-20">
+                                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                                        </div>
+                                    ) : hasSyncedLyrics ? (
+                                        <div className="space-y-4 max-h-60 overflow-y-auto custom-scrollbar">
+                                            {lyricsData.map((line, i) => (
+                                                <p
+                                                    key={i}
+                                                    ref={i === activeLyricIndex ? activeLyricRef : null}
+                                                    className={`transition-all duration-300 ${i === activeLyricIndex ? 'text-white font-bold scale-105' : 'text-white/40'}`}
+                                                >
+                                                    {line.text}
                                                 </p>
-                                            </div>
-                                        )}
-                                    </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-lg leading-relaxed text-white/80 whitespace-pre-wrap font-medium">
+                                            {plainLyrics}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -366,69 +436,118 @@ const MusicPage = () => {
                 )}
             </AnimatePresence>
 
-            {/* MAIN SEARCH VIEW */}
+            {/* MAIN VIEW */}
             <div className="relative z-10 max-w-7xl mx-auto px-6 pt-24 pb-32">
-                {/* Navigation */}
-                <div className="flex justify-between items-center mb-8">
-                    <div className="flex gap-4">
-                        <button onClick={() => setView('discover')} className={`text-xl font-bold ${view === 'discover' ? 'text-white' : 'text-white/40'}`}>Discover</button>
-                        <button onClick={() => setView('library')} className={`text-xl font-bold ${view === 'library' ? 'text-white' : 'text-white/40'}`}>My Library</button>
-                    </div>
-                    <button onClick={logout} className="text-xs text-red-400 hover:text-red-300">Logout</button>
+                <div className="flex items-center gap-8 mb-8">
+                    <button
+                        onClick={() => setMode('library')}
+                        className={`text-3xl font-bold transition-all ${mode === 'library' ? 'text-white' : 'text-white/30 hover:text-white/60'}`}
+                    >
+                        My Library <span className="text-sm align-middle bg-white/10 px-2 py-1 rounded-full ml-2">{library.length}</span>
+                    </button>
+                    <button
+                        onClick={() => setMode('search')}
+                        className={`text-3xl font-bold transition-all ${mode === 'search' ? 'text-white' : 'text-white/30 hover:text-white/60'}`}
+                    >
+                        Search
+                    </button>
                 </div>
 
-                <form onSubmit={searchMusic} className="mb-8 relative">
-                    <input
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        placeholder="Search Spotify..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pl-10 focus:border-[#1DB954] outline-none"
-                    />
-                    <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" />
+                <form onSubmit={searchiTunes} className="mb-12 relative flex gap-4 z-50">
+                    <div className="relative flex-1">
+                        <input
+                            autoFocus
+                            value={inputValue}
+                            onChange={e => setInputValue(e.target.value)}
+                            placeholder="Search songs on iTunes..."
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 pl-12 focus:border-red-500 outline-none transition-colors text-white"
+                        />
+                        <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
+                    </div>
+                    <button disabled={loading} className="bg-red-600 hover:bg-red-700 text-white px-8 rounded-xl font-bold flex items-center gap-2 transition-colors">
+                        {loading ? 'Searching...' : 'Search'}
+                    </button>
                 </form>
 
                 <div className="space-y-2">
-                    {(view === 'discover' ? results : library).map((item, i) => {
-                        // Normalize for display list
-                        const isLib = view === 'library';
-                        const title = isLib ? item.title : item.name;
-                        const artist = isLib ? item.artist : item.artists[0].name;
-                        const cover = isLib ? item.cover_url : (item.album.images[2]?.url || item.album.images[0]?.url);
-
-                        const spotifyId = isLib ? item.track_id : item.id;
-                        const isCurrent = currentTrack?.id === spotifyId;
-                        const isPlayingTrack = isCurrent && isPlaying;
+                    {(mode === 'search' ? searchResults : library).map((item, i) => {
+                        const isSearch = mode === 'search';
+                        const title = isSearch ? item.trackName : item.title;
+                        const artist = isSearch ? item.artistName : item.artist;
+                        const cover = isSearch ? item.artworkUrl100 : item.cover_url;
+                        const uid = isSearch ? item.trackId : item.id;
+                        const isCurrent = currentTrack?.track_id === (item.trackId || item.track_id)?.toString();
 
                         return (
-                            <div key={i} onClick={() => playTrack(item)} className="flex items-center gap-4 p-3 rounded-lg hover:bg-white/5 cursor-pointer group transition-colors">
-                                <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                                    {isCurrent ? (
-                                        isPlayingTrack ? (
-                                            <div className="flex gap-[2px] h-3 items-end">
-                                                <motion.div animate={{ height: [3, 12, 3] }} transition={{ repeat: Infinity, duration: 0.5 }} className="w-[3px] bg-[#1DB954] rounded-full" />
-                                                <motion.div animate={{ height: [3, 12, 3] }} transition={{ repeat: Infinity, duration: 0.5, delay: 0.1 }} className="w-[3px] bg-[#1DB954] rounded-full" />
-                                                <motion.div animate={{ height: [3, 12, 3] }} transition={{ repeat: Infinity, duration: 0.5, delay: 0.2 }} className="w-[3px] bg-[#1DB954] rounded-full" />
-                                            </div>
-                                        ) : (
-                                            <FaPlay className="text-[#1DB954] text-xs" />
-                                        )
-                                    ) : (
-                                        <>
-                                            <span className="text-white/40 group-hover:hidden font-mono text-sm">{i + 1}</span>
-                                            <FaPlay className="hidden group-hover:block text-white text-xs" />
-                                        </>
+                            <div
+                                key={uid}
+                                onClick={() => isSearch ? playFromSearch(item) : playTrack(item, library)}
+                                className="flex items-center gap-4 p-4 rounded-xl hover:bg-white/5 cursor-pointer group transition-all border border-transparent hover:border-white/5 relative"
+                            >
+                                <span className="text-white/20 w-8 font-mono text-center">{i + 1}</span>
+                                <div className="relative w-12 h-12 shrink-0">
+                                    <img src={cover} className={`w-full h-full rounded-lg object-cover ${isCurrent ? 'opacity-50' : ''}`} />
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        {isCurrent ? <FaPlay className="text-red-500 text-sm" /> : (
+                                            isSearch ? <FaPlay className="text-white opacity-0 group-hover:opacity-100" /> : <FaMusic className="text-white opacity-0 group-hover:opacity-100" />
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex-1 pr-12">
+                                    <h4 className={`font-bold text-lg ${isCurrent ? 'text-red-500' : 'text-white'}`}>{title}</h4>
+                                    <p className="text-sm text-white/50">{artist}</p>
+                                </div>
+
+                                <div className="flex items-center gap-2 relative z-20">
+                                    {isSearch && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+
+                                                const trackIdToCheck = item.trackId.toString();
+                                                const isSaved = library.some(libItem => libItem.track_id === trackIdToCheck);
+                                                if (isSaved) return;
+
+                                                // Construct track object for save
+                                                const trackToSave = {
+                                                    title: item.trackName,
+                                                    artist: item.artistName,
+                                                    album: item.collectionName || 'Single',
+                                                    cover_url: item.artworkUrl100.replace('100x100bb', '500x500bb'),
+                                                    track_id: item.trackId.toString(),
+                                                    preview_url: item.previewUrl || ''
+                                                };
+                                                saveToLibrary(trackToSave);
+                                            }}
+                                            className={`p-3 rounded-full transition-all ${library.some(libItem => libItem.track_id === (item.trackId || item.track_id)?.toString())
+                                                ? 'text-red-500 opacity-100'
+                                                : 'text-white/20 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100'
+                                                }`}
+                                        >
+                                            <FaHeart />
+                                        </button>
+                                    )}
+
+                                    {!isSearch && (
+                                        <button
+                                            onClick={(e) => deleteSong(item.id, e)}
+                                            className="p-3 text-white/20 hover:text-red-500 hover:bg-white/5 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                                        >
+                                            <FaTrash />
+                                        </button>
                                     )}
                                 </div>
-                                <img src={cover} className="w-10 h-10 rounded object-cover shadow-lg group-hover:scale-105 transition-transform" />
-                                <div className="flex-1">
-                                    <h4 className={`font-bold ${isCurrent ? 'text-[#1DB954]' : 'text-white'}`}>{title}</h4>
-                                    <p className="text-xs text-white/50">{artist}</p>
-                                </div>
-                                <button onClick={(e) => { e.stopPropagation(); saveSong(item); }} className="opacity-0 group-hover:opacity-100 p-2 text-white/40 hover:text-[#1DB954]"><FaHeart /></button>
                             </div>
                         )
                     })}
                 </div>
+                {library.length === 0 && mode === 'library' && (
+                    <div className="text-center py-20 text-white/20 border-2 border-dashed border-white/5 rounded-3xl mt-8">
+                        <FaMusic className="text-6xl mx-auto mb-4 opacity-50" />
+                        <p>No songs yet. Use Search to find and add music!</p>
+                    </div>
+                )}
             </div>
         </div>
     );
