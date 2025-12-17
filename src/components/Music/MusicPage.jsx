@@ -59,14 +59,7 @@ const MusicPage = () => {
     // ... existing initialization ...
 
     const initializeSpotifyPlayer = (accessToken) => {
-        if (window.Spotify) return; // Already loaded
-
-        const script = document.createElement("script");
-        script.src = "https://sdk.scdn.co/spotify-player.js";
-        script.async = true;
-        document.body.appendChild(script);
-
-        window.onSpotifyWebPlaybackSDKReady = () => {
+        const createPlayer = () => {
             const newPlayer = new window.Spotify.Player({
                 name: 'Antigravity Portfolio Player',
                 getOAuthToken: cb => { cb(accessToken); },
@@ -82,21 +75,37 @@ const MusicPage = () => {
                 console.log('Device ID has gone offline', device_id);
             });
 
+            newPlayer.addListener('initialization_error', ({ message }) => {
+                console.error('Failed to initialize', message);
+            });
+
+            newPlayer.addListener('authentication_error', ({ message }) => {
+                console.error('Failed to authenticate', message);
+            });
+
+            newPlayer.addListener('account_error', ({ message }) => {
+                console.error('Account Error (Premium required)', message);
+                alert('Spotify Premium is required for web playback.');
+            });
+
             newPlayer.addListener('player_state_changed', (state) => {
                 if (!state) return;
                 setIsPlaying(!state.paused);
-
-                // Sync current track from Spotify state
-                const sTrack = state.track_window.current_track;
-                if (sTrack) {
-                    // Update current track purely for UI if needed, 
-                    // but we generally rely on our own meta data for better resolution
-                }
             });
 
             newPlayer.connect();
             setPlayer(newPlayer);
         };
+
+        if (window.Spotify) {
+            createPlayer();
+        } else {
+            window.onSpotifyWebPlaybackSDKReady = createPlayer;
+            const script = document.createElement("script");
+            script.src = "https://sdk.scdn.co/spotify-player.js";
+            script.async = true;
+            document.body.appendChild(script);
+        }
     };
 
     const fetchLibrary = async () => {
