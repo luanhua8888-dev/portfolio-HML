@@ -18,10 +18,18 @@ const MusicPage = () => {
     const [view, setView] = useState('discover'); // 'discover' | 'library'
 
     // Player State
+    // Player State
     const [currentTrack, setCurrentTrack] = useState(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [isPlayerOpen, setIsPlayerOpen] = useState(false);
     const [queue, setQueue] = useState([]);
+    const [isPremium, setIsPremium] = useState(() => {
+        const saved = localStorage.getItem('spotify_is_premium');
+        return saved !== null ? JSON.parse(saved) : true;
+    });
+
+    // We can keep audioRef if we ever need it, but for now we rely on YouTube for free mode
+    const audioRef = useRef(new Audio());
 
     // Auth & Player Init
     useEffect(() => {
@@ -84,8 +92,9 @@ const MusicPage = () => {
             });
 
             newPlayer.addListener('account_error', ({ message }) => {
-                console.error('Account Error (Premium required)', message);
-                alert('Spotify Premium is required for web playback.');
+                console.warn('Account Error (Non-Premium)', message);
+                setIsPremium(false);
+                localStorage.setItem('spotify_is_premium', 'false');
             });
 
             newPlayer.addListener('player_state_changed', (state) => {
@@ -107,6 +116,25 @@ const MusicPage = () => {
             document.body.appendChild(script);
         }
     };
+
+    // Initialize HTML5 Audio events
+    useEffect(() => {
+        const audio = audioRef.current;
+        const handleEnded = () => setIsPlaying(false);
+        const handlePlay = () => setIsPlaying(true);
+        const handlePause = () => setIsPlaying(false);
+
+        audio.addEventListener('ended', handleEnded);
+        audio.addEventListener('play', handlePlay);
+        audio.addEventListener('pause', handlePause);
+
+        return () => {
+            audio.removeEventListener('ended', handleEnded);
+            audio.removeEventListener('play', handlePlay);
+            audio.removeEventListener('pause', handlePause);
+            audio.pause();
+        };
+    }, []);
 
     const fetchLibrary = async () => {
         if (!supabase) return;
@@ -134,11 +162,9 @@ const MusicPage = () => {
     };
 
     const playTrack = async (track, list) => {
-        if (!deviceId || !token) return;
+        if (!token) return;
 
         // Normalize Track Data
-        // If it has 'artists' array, it's likely a raw Spotify API object
-        // If not, it's likely our Supabase Library object
         const isSpotifyObj = track.artists && Array.isArray(track.artists);
 
         const normalizedTrack = isSpotifyObj ? {
@@ -147,21 +173,39 @@ const MusicPage = () => {
             cover_url: track.album.images[0]?.url,
             uri: track.uri,
             track_id: track.id,
-            id: track.id // Always use Spotify ID as main ID
+            id: track.id,
+            preview_url: track.preview_url
         } : {
             ...track,
-            id: track.track_id || track.id // Ensure ID is Spotify ID
+            id: track.track_id || track.id
         };
 
         setQueue(list || [normalizedTrack]);
         setCurrentTrack(normalizedTrack);
         setIsPlayerOpen(true);
 
-        await spotifyApi.play(token, deviceId, normalizedTrack.uri);
+        // Stop any HTML5 audio if it was running (cleanup)
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+        }
+
+        // Premium Playback via SDK
+        if (isPremium && deviceId) {
+            try {
+                await spotifyApi.play(token, deviceId, normalizedTrack.uri);
+            } catch (e) {
+                console.error("Spotify Play Error", e);
+            }
+        }
+        // Non-Premium: Do nothing. The UI renders the YouTube iframe which Autoplays.
     };
 
     const togglePlay = () => {
-        if (player) player.togglePlay();
+        if (isPremium && player) {
+            player.togglePlay();
+        }
+        // YouTube iframe handles its own play/pause via its own controls
     };
 
     const handleNext = () => {
@@ -186,8 +230,9 @@ const MusicPage = () => {
             artist: (track.artists ? track.artists[0].name : track.artist),
             album: (track.album ? track.album.name : track.album),
             cover_url: (track.album ? track.album.images[0].url : track.cover_url),
-            uri: track.uri, // Changed from preview_url to URI
-            track_id: track.id || track.track_id
+            uri: track.uri,
+            track_id: track.id || track.track_id,
+            preview_url: track.preview_url || null
         };
 
         const { error } = await supabase.from('songs').insert([newSong]);
@@ -248,7 +293,10 @@ const MusicPage = () => {
                             <div className="max-w-5xl mx-auto w-full h-full flex flex-col">
                                 {/* Top Bar */}
                                 <div className="flex justify-between items-center mb-4 shrink-0">
-                                    <span className="text-xs font-bold tracking-widest text-[#1DB954] uppercase flex items-center gap-2"><FaSpotify /> Premium Player</span>
+                                    <span className="text-xs font-bold tracking-widest text-[#1DB954] uppercase flex items-center gap-2">
+                                        {isPremium ? <FaSpotify /> : <FaSpotify className="text-gray-400" />}
+                                        {isPremium ? 'Premium Player' : 'Free Mode (YouTube)'}
+                                    </span>
                                     <button onClick={() => setIsPlayerOpen(false)} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/20 transition-all">
                                         <FaChevronDown />
                                     </button>
@@ -266,17 +314,50 @@ const MusicPage = () => {
 
                                     {/* Controls Right */}
                                     <div className="lg:col-span-5 flex flex-col bg-white/5 rounded-3xl p-6 backdrop-blur-md border border-white/5">
-                                        <div className="w-64 h-64 mx-auto rounded-xl overflow-hidden shadow-2xl relative mb-6 shrink-0 aspect-square">
-                                            <img src={currentTrack.cover_url} className="w-full h-full object-cover" />
+                                        <div className={`w-full mx-auto rounded-xl overflow-hidden shadow-2xl relative mb-6 shrink-0 bg-black ${isPremium ? 'aspect-square' : 'aspect-video'}`}>
+                                            {isPremium ? (
+                                                <img src={currentTrack.cover_url} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <iframe
+                                                    className="w-full h-full"
+                                                    src={`https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(currentTrack.title + " " + currentTrack.artist + " audio")}&autoplay=1&cc_load_policy=1`}
+                                                    frameBorder="0"
+                                                    allow="autoplay; encrypted-media"
+                                                    allowFullScreen
+                                                    title="YouTube Player"
+                                                />
+                                            )}
                                         </div>
 
-                                        <div className="flex items-center justify-center gap-6 mt-4">
-                                            <button onClick={handlePrev} className="text-3xl hover:text-white text-white/80 transition-colors"><FaStepBackward /></button>
-                                            <button onClick={togglePlay} className="w-16 h-16 rounded-full bg-[#1DB954] text-black flex items-center justify-center hover:scale-105 transition-transform shadow-xl">
-                                                {isPlaying ? <FaPause size={24} /> : <FaPlay size={24} className="ml-1" />}
-                                            </button>
-                                            <button onClick={handleNext} className="text-3xl hover:text-white text-white/80 transition-colors"><FaStepForward /></button>
-                                        </div>
+                                        {isPremium && (
+                                            <div className="flex items-center justify-center gap-6 mt-4">
+                                                <button onClick={handlePrev} className="text-3xl hover:text-white text-white/80 transition-colors"><FaStepBackward /></button>
+                                                <button onClick={togglePlay} className="w-16 h-16 rounded-full bg-[#1DB954] text-black flex items-center justify-center hover:scale-105 transition-transform shadow-xl">
+                                                    {isPlaying ? <FaPause size={24} /> : <FaPlay size={24} className="ml-1" />}
+                                                </button>
+                                                <button onClick={handleNext} className="text-3xl hover:text-white text-white/80 transition-colors"><FaStepForward /></button>
+                                            </div>
+                                        )}
+                                        {!isPremium && (
+                                            <div className="flex flex-col items-center mt-4 gap-4">
+                                                <div className="flex items-center justify-center gap-8">
+                                                    <button onClick={handlePrev} className="text-3xl hover:text-white text-white/80 transition-colors" title="Previous Song">
+                                                        <FaStepBackward />
+                                                    </button>
+
+                                                    <div className="px-4 py-2 rounded-full bg-red-600/20 border border-red-600/50 text-red-500 font-bold text-xs flex items-center gap-2">
+                                                        <span>YouTube Mode</span>
+                                                    </div>
+
+                                                    <button onClick={handleNext} className="text-3xl hover:text-white text-white/80 transition-colors" title="Next Song">
+                                                        <FaStepForward />
+                                                    </button>
+                                                </div>
+                                                <p className="text-[10px] text-white/30 uppercase tracking-widest">
+                                                    Use video controls to Pause/Seek
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
