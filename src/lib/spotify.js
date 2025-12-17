@@ -14,7 +14,16 @@ const scopes = [
     "user-modify-playback-state",
 ];
 
-export const loginUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes.join(" "))}&response_type=token&show_dialog=true`;
+// Construct URL using URLSearchParams to ensure correct encoding
+const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: scopes.join(" "),
+    response_type: "token",
+    show_dialog: "true",
+});
+
+export const loginUrl = `${authEndpoint}?${params.toString()}`;
 
 export const getTokenFromUrl = () => {
     return window.location.hash
