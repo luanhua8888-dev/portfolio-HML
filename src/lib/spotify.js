@@ -1,7 +1,7 @@
 // Spotify Auth & API Utilities
 
 const authEndpoint = "https://accounts.spotify.com/authorize";
-const redirectUri = window.location.origin; // Redirect back to current page
+const redirectUri = window.location.origin + '/'; // Always append slash to match typical Dashboard entries
 const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 
 const scopes = [
