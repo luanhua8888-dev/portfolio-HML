@@ -127,16 +127,22 @@ const MusicPage = () => {
     const playTrack = async (track, list) => {
         if (!deviceId || !token) return;
 
-        // Spotify API Format Normalization
-        const isSpotifyObj = track.uri;
+        // Normalize Track Data
+        // If it has 'artists' array, it's likely a raw Spotify API object
+        // If not, it's likely our Supabase Library object
+        const isSpotifyObj = track.artists && Array.isArray(track.artists);
+
         const normalizedTrack = isSpotifyObj ? {
             title: track.name,
             artist: track.artists[0].name,
             cover_url: track.album.images[0]?.url,
             uri: track.uri,
             track_id: track.id,
-            id: track.id
-        } : track;
+            id: track.id // Always use Spotify ID as main ID
+        } : {
+            ...track,
+            id: track.track_id || track.id // Ensure ID is Spotify ID
+        };
 
         setQueue(list || [normalizedTrack]);
         setCurrentTrack(normalizedTrack);
@@ -299,12 +305,33 @@ const MusicPage = () => {
                         const artist = isLib ? item.artist : item.artists[0].name;
                         const cover = isLib ? item.cover_url : (item.album.images[2]?.url || item.album.images[0]?.url);
 
+                        const spotifyId = isLib ? item.track_id : item.id;
+                        const isCurrent = currentTrack?.id === spotifyId;
+                        const isPlayingTrack = isCurrent && isPlaying;
+
                         return (
-                            <div key={i} onClick={() => playTrack(item)} className="flex items-center gap-4 p-3 rounded-lg hover:bg-white/5 cursor-pointer group">
-                                <span className="text-white/40 w-6">{i + 1}</span>
-                                <img src={cover} className="w-10 h-10 rounded object-cover" />
+                            <div key={i} onClick={() => playTrack(item)} className="flex items-center gap-4 p-3 rounded-lg hover:bg-white/5 cursor-pointer group transition-colors">
+                                <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                                    {isCurrent ? (
+                                        isPlayingTrack ? (
+                                            <div className="flex gap-[2px] h-3 items-end">
+                                                <motion.div animate={{ height: [3, 12, 3] }} transition={{ repeat: Infinity, duration: 0.5 }} className="w-[3px] bg-[#1DB954] rounded-full" />
+                                                <motion.div animate={{ height: [3, 12, 3] }} transition={{ repeat: Infinity, duration: 0.5, delay: 0.1 }} className="w-[3px] bg-[#1DB954] rounded-full" />
+                                                <motion.div animate={{ height: [3, 12, 3] }} transition={{ repeat: Infinity, duration: 0.5, delay: 0.2 }} className="w-[3px] bg-[#1DB954] rounded-full" />
+                                            </div>
+                                        ) : (
+                                            <FaPlay className="text-[#1DB954] text-xs" />
+                                        )
+                                    ) : (
+                                        <>
+                                            <span className="text-white/40 group-hover:hidden font-mono text-sm">{i + 1}</span>
+                                            <FaPlay className="hidden group-hover:block text-white text-xs" />
+                                        </>
+                                    )}
+                                </div>
+                                <img src={cover} className="w-10 h-10 rounded object-cover shadow-lg group-hover:scale-105 transition-transform" />
                                 <div className="flex-1">
-                                    <h4 className={`font-bold ${currentTrack?.id === item.id ? 'text-[#1DB954]' : 'text-white'}`}>{title}</h4>
+                                    <h4 className={`font-bold ${isCurrent ? 'text-[#1DB954]' : 'text-white'}`}>{title}</h4>
                                     <p className="text-xs text-white/50">{artist}</p>
                                 </div>
                                 <button onClick={(e) => { e.stopPropagation(); saveSong(item); }} className="opacity-0 group-hover:opacity-100 p-2 text-white/40 hover:text-[#1DB954]"><FaHeart /></button>
