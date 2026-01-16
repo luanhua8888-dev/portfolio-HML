@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { FaEnvelope, FaPaperPlane } from 'react-icons/fa';
+import { FaEnvelope, FaPaperPlane, FaBook } from 'react-icons/fa';
+import { Link } from 'react-router-dom';
 
 const Contact = () => {
     return (
@@ -60,8 +61,16 @@ const Contact = () => {
                     </form>
                 </motion.div>
 
-                <div className="mt-16 pt-8 border-t border-white/5 text-slate-500 text-sm">
-                    &copy; {new Date().getFullYear()} Hua Minh Luan. All rights reserved.
+                <div className="mt-16 pt-8 border-t border-white/5 flex flex-col items-center gap-4">
+                    <Link
+                        to="/learn"
+                        className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 transition-colors font-semibold"
+                    >
+                        <FaBook className="text-sm" /> Learn - Interview Practice
+                    </Link>
+                    <div className="text-slate-500 text-sm">
+                        &copy; {new Date().getFullYear()} Hua Minh Luan. All rights reserved.
+                    </div>
                 </div>
             </div>
         </section>

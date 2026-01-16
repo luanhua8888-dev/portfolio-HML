@@ -12,6 +12,7 @@ import CustomCursor from './components/CustomCursor';
 import ParticlesBackground from './components/ParticlesBackground';
 import Preloader from './components/Preloader';
 import MusicPage from './components/Music/MusicPage';
+import LearnPage from './components/Learn/LearnPage';
 
 const Home = () => (
   <>
@@ -50,6 +51,7 @@ const AppContent = () => {
             <Routes location={location} key={location.pathname}>
               <Route path="/" element={<Home />} />
               <Route path="/music" element={<MusicPage />} />
+              <Route path="/learn" element={<LearnPage />} />
             </Routes>
           </AnimatePresence>
         </>

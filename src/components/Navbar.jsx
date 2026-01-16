@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaChevronRight, FaChevronLeft, FaHome, FaUser, FaCode, FaEnvelope, FaFileDownload, FaMusic } from 'react-icons/fa';
+import { FaChevronRight, FaChevronLeft, FaHome, FaUser, FaCode, FaEnvelope, FaFileDownload, FaMusic, FaBook } from 'react-icons/fa';
 import { Link, useLocation } from 'react-router-dom';
 import Magnetic from './Magnetic';
 
@@ -22,6 +22,7 @@ const Navbar = () => {
     { name: 'About', href: '/#about', icon: <FaUser /> },
     { name: 'Projects', href: '/#projects', icon: <FaCode /> },
     { name: 'Music', href: '/music', icon: <FaMusic /> }, // Internal Route
+    { name: 'Learn', href: '/learn', icon: <FaBook /> }, // Internal Route
     { name: 'Contact', href: '/#contact', icon: <FaEnvelope /> },
   ];
 
