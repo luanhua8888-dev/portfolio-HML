@@ -5,6 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>portfolio</title>
+    <script>
+      // Proactively prevent console spam from missing devicons that trigger DevTools
+      (function() {
+        const originalFetch = window.fetch;
+        window.fetch = function(url, init) {
+          if (typeof url === 'string' && url.includes('devicons')) {
+            return Promise.reject(new Error('Blocked devicon asset to prevent console spam'));
+          }
+          return originalFetch.apply(this, arguments);
+        };
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

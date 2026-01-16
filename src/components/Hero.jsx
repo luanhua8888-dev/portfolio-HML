@@ -120,7 +120,7 @@ const Hero = () => {
 
                 <div className="flex gap-8 justify-center">
                     <SocialLink href="https://github.com/luanhua8888-dev" icon={<FaGithub />} />
-                    <SocialLink href="https://linkedin.com" icon={<FaLinkedin />} />
+                    <SocialLink href="https://www.linkedin.com/in/luanhua8888/" icon={<FaLinkedin />} />
                 </div>
             </motion.div>
 
@@ -144,15 +144,20 @@ const Hero = () => {
 };
 
 const SocialLink = ({ href, icon }) => (
-    <motion.a
-        href={href}
-        target="_blank"
-        className="text-3xl text-slate-400 hover:text-white transition-colors p-3 rounded-full hover:bg-white/5 border border-transparent hover:border-white/10 backdrop-blur-sm"
+    <motion.div
         whileHover={{ y: -5, scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
+        className="flex items-center justify-center"
     >
-        {icon}
-    </motion.a>
+        <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-3xl text-slate-400 hover:text-white transition-colors p-3 rounded-full hover:bg-white/5 border border-transparent hover:border-white/10 backdrop-blur-sm"
+        >
+            {icon}
+        </a>
+    </motion.div>
 );
 
 export default Hero;

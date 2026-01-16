@@ -8,9 +8,11 @@ import {
     RiBookOpenLine, RiGitBranchLine, RiLightbulbLine, RiDatabase2Line,
     RiCloudLine, RiSettings4Line, RiShieldKeyholeLine, RiCheckDoubleLine,
     RiStarFill, RiStarLine, RiDownload2Line, RiKeyboardBoxLine,
-    RiMindMap, RiCommandLine
+    RiMindMap, RiCommandLine, RiAddCircleLine, RiSave3Line, RiImageLine,
+    RiFontSize, RiListCheck, RiEdit2Line, RiDeleteBin6Line
 } from 'react-icons/ri';
 import { HiOutlineLightningBolt, HiOutlineSparkles, HiOutlineCubeTransparent } from 'react-icons/hi';
+import { FaArrowLeft, FaArrowRight, FaKeyboard, FaSearch, FaBolt, FaTimes } from 'react-icons/fa';
 import { SiDotnet, SiRedis, SiDocker, SiDiagramsdotnet } from 'react-icons/si';
 import { supabase } from '../../lib/supabaseClient';
 import { useState, useEffect, useMemo, memo } from 'react';
@@ -38,22 +40,30 @@ const categoryIcons = {
 };
 
 const HighlightText = memo(({ text, highlight }) => {
-    if (!highlight.trim()) return <span>{text}</span>;
-    const regex = new RegExp(`(${highlight})`, 'gi');
-    const parts = text.split(regex);
-    return (
-        <span>
-            {parts.map((part, i) =>
-                regex.test(part) ? (
-                    <mark key={i} className="bg-indigo-500/30 text-indigo-200 rounded px-1 transition-colors">
-                        {part}
-                    </mark>
-                ) : (
-                    <span key={i}>{part}</span>
-                )
-            )}
-        </span>
-    );
+    if (!text) return null;
+    if (!highlight || !highlight.trim()) return <span>{text}</span>;
+
+    try {
+        const escapedHighlight = highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escapedHighlight})`, 'gi');
+        const parts = text.split(regex);
+
+        return (
+            <span>
+                {parts.map((part, i) =>
+                    part.toLowerCase() === highlight.toLowerCase() ? (
+                        <mark key={i} className="bg-indigo-500/30 text-indigo-200 rounded px-1 transition-colors">
+                            {part}
+                        </mark>
+                    ) : (
+                        <span key={i}>{part}</span>
+                    )
+                )}
+            </span>
+        );
+    } catch (e) {
+        return <span>{text}</span>;
+    }
 });
 
 const domainIcons = {
@@ -90,22 +100,29 @@ const CodeBlock = ({ code }) => {
     );
 };
 
-const Timer = ({ duration = 120, onExpire }) => {
+const Timer = ({ duration = 120, onExpire, onTick }) => {
     const [timeLeft, setTimeLeft] = useState(duration);
     const [isActive, setIsActive] = useState(true);
 
     useEffect(() => {
-        let interval = null;
-        if (isActive && timeLeft > 0) {
-            interval = setInterval(() => {
-                setTimeLeft((prev) => prev - 1);
-            }, 1000);
-        } else if (timeLeft === 0) {
-            clearInterval(interval);
-            if (onExpire) onExpire();
-        }
+        if (!isActive || timeLeft <= 0) return;
+
+        const interval = setInterval(() => {
+            setTimeLeft((prev) => {
+                const next = prev - 1;
+                // Only call onTick if it's a new second to avoid redundant updates
+                return next;
+            });
+        }, 1000);
+
         return () => clearInterval(interval);
-    }, [isActive, timeLeft, onExpire]);
+    }, [isActive]);
+
+    // Separate effect for onTick to decouple it from interval setup
+    useEffect(() => {
+        if (onTick) onTick(timeLeft);
+        if (timeLeft === 0 && onExpire) onExpire();
+    }, [timeLeft, onTick, onExpire]);
 
     const minutes = Math.floor(timeLeft / 60);
     const seconds = timeLeft % 60;
@@ -230,7 +247,7 @@ const Flashcard = ({ item, isRead, onToggleRead, isStarred, onToggleStar, search
     );
 };
 
-const QuestionCard = memo(({ item, isRead, onToggleRead, isStarred, onToggleStar, searchTerm, highlight = false, alwaysOpen = false }) => {
+const QuestionCard = memo(({ item, isRead, onToggleRead, isStarred, onToggleStar, searchTerm, highlight = false, alwaysOpen = false, isAdmin, onEdit, onDelete }) => {
     const [isOpen, setIsOpen] = useState(highlight || alwaysOpen);
 
     const renderContent = (content) => {
@@ -291,6 +308,24 @@ const QuestionCard = memo(({ item, isRead, onToggleRead, isStarred, onToggleStar
                     )}
                 </button>
                 <div className="px-8 flex items-center gap-4">
+                    {isAdmin && (
+                        <div className="flex items-center gap-2 border-r border-white/10 pr-6 mr-2">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onEdit(item); }}
+                                className="p-2.5 rounded-xl bg-white/5 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                                title="Edit Question"
+                            >
+                                <RiEdit2Line size={20} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
+                                className="p-2.5 rounded-xl bg-white/5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                title="Delete Question"
+                            >
+                                <RiDeleteBin6Line size={20} />
+                            </button>
+                        </div>
+                    )}
                     <button
                         onClick={(e) => { e.stopPropagation(); onToggleStar(item.id); }}
                         className={`text-2xl transition-all duration-500 hover:scale-125 ${isStarred ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]' : 'text-slate-700 hover:text-slate-500'}`}
@@ -328,7 +363,7 @@ const QuestionCard = memo(({ item, isRead, onToggleRead, isStarred, onToggleStar
     );
 });
 
-const QuestionList = memo(({ data, readIds, toggleRead, starredIds, toggleStar, searchTerm }) => {
+const QuestionList = memo(({ data, readIds, toggleRead, starredIds, toggleStar, searchTerm, isAdmin, onEdit, onDelete }) => {
     if (data.length === 0) {
         return (
             <div className="text-center py-40 bg-slate-900/20 rounded-[3rem] border border-dashed border-white/5 backdrop-blur-sm">
@@ -348,6 +383,9 @@ const QuestionList = memo(({ data, readIds, toggleRead, starredIds, toggleStar, 
                         isStarred={starredIds.includes(item.id)}
                         onToggleStar={toggleStar}
                         searchTerm={searchTerm}
+                        isAdmin={isAdmin}
+                        onEdit={onEdit}
+                        onDelete={onDelete}
                     />
                 ))}
             </AnimatePresence>
@@ -355,12 +393,30 @@ const QuestionList = memo(({ data, readIds, toggleRead, starredIds, toggleStar, 
     );
 });
 
-const DecorativeBackground = memo(() => (
+const MeteorShower = memo(() => (
+    <div className="fixed inset-0 pointer-events-none z-[-5] overflow-hidden">
+        {[...Array(10)].map((_, i) => (
+            <div
+                key={i}
+                className="meteor"
+                style={{
+                    top: `${Math.random() * 40}%`,
+                    left: `${50 + Math.random() * 50}%`,
+                    animationDelay: `${Math.random() * 5}s`,
+                    animationDuration: `${1 + Math.random() * 2}s`
+                }}
+            />
+        ))}
+    </div>
+));
+
+const DecorativeBackground = memo(({ showMeteors }) => (
     <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-indigo-500/10 rounded-full blur-[120px] animate-pulse" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-500/10 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '3s' }} />
         <div className="absolute top-[20%] right-[10%] w-[15%] h-[15%] bg-cyan-500/5 rounded-full blur-[80px]" />
         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] contrast-150" />
+        {showMeteors && <MeteorShower />}
     </div>
 ));
 
@@ -395,6 +451,163 @@ const StatsWidget = memo(({ currentDataSet, readIds, starredIds }) => {
     );
 });
 
+const QuestionModal = memo(({ isOpen, onClose, onSave, categories, levels, domains, activeTab, editingQuestion }) => {
+    const [formData, setFormData] = useState({
+        question: '',
+        answer: '',
+        category: categories[1] || 'General',
+        level: 'Junior',
+        domain: 'Backend',
+        source: activeTab === 'general' ? 'general' : 'jd'
+    });
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        if (editingQuestion) {
+            setFormData({
+                question: editingQuestion.question,
+                answer: editingQuestion.answer,
+                category: editingQuestion.category,
+                level: editingQuestion.level,
+                domain: editingQuestion.domain,
+                source: editingQuestion.source
+            });
+        } else {
+            setFormData({
+                question: '',
+                answer: '',
+                category: categories[1] || 'General',
+                level: 'Junior',
+                domain: 'Backend',
+                source: activeTab === 'general' ? 'general' : 'jd'
+            });
+        }
+    }, [editingQuestion, isOpen, activeTab, categories]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setIsSaving(true);
+        try {
+            if (editingQuestion) {
+                const { error } = await supabase
+                    .from('interview_questions')
+                    .update(formData)
+                    .eq('id', editingQuestion.id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabase
+                    .from('interview_questions')
+                    .insert([{ ...formData, source: activeTab === 'general' ? 'general' : 'jd' }]);
+                if (error) throw error;
+            }
+            onSave();
+            onClose();
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <AnimatePresence>
+            {isOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md font-jakarta">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                        className="bg-slate-900 border border-white/10 w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                    >
+                        <div className="p-10 border-b border-white/5 flex justify-between items-center bg-indigo-600/5">
+                            <div>
+                                <h3 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
+                                    {editingQuestion ? <RiEdit2Line className="text-indigo-400" /> : <RiAddCircleLine className="text-indigo-400" />}
+                                    {editingQuestion ? 'Update Data Node' : 'Deploy New Data Node'}
+                                </h3>
+                                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">Authorized Admin Access Only</p>
+                            </div>
+                            <button onClick={onClose} className="p-3 hover:bg-white/10 rounded-full text-slate-400 transition-colors">
+                                <RiCloseLine size={24} />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="p-10 space-y-8 overflow-y-auto custom-scrollbar">
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
+                                    <RiFontSize /> Master Question
+                                </label>
+                                <textarea
+                                    required
+                                    value={formData.question}
+                                    onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+                                    className="w-full bg-slate-950/50 border border-white/5 rounded-2xl p-5 text-white text-sm focus:outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/5 transition-all min-h-[100px] font-medium"
+                                    placeholder="Enter the core interview problem..."
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-6">
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Category</label>
+                                    <select
+                                        value={formData.category}
+                                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                                        className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-5 py-4 text-white text-xs focus:outline-none transition-all appearance-none"
+                                    >
+                                        {categories.filter(c => c !== 'All').map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Level</label>
+                                    <select
+                                        value={formData.level}
+                                        onChange={(e) => setFormData({ ...formData, level: e.target.value })}
+                                        className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-5 py-4 text-white text-xs focus:outline-none transition-all"
+                                    >
+                                        {levels.filter(l => l !== 'All').map(l => <option key={l} value={l}>{l}</option>)}
+                                    </select>
+                                </div>
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Domain</label>
+                                    <select
+                                        value={formData.domain}
+                                        onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
+                                        className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-5 py-4 text-white text-xs focus:outline-none transition-all"
+                                    >
+                                        {domains.filter(d => d !== 'All').map(d => <option key={d} value={d}>{d}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
+                                    <RiImageLine /> Knowledge base (Markdown)
+                                </label>
+                                <textarea
+                                    required
+                                    value={formData.answer}
+                                    onChange={(e) => setFormData({ ...formData, answer: e.target.value })}
+                                    className="w-full bg-slate-950/50 border border-white/5 rounded-2xl p-5 text-white text-sm font-mono focus:outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/5 transition-all min-h-[250px]"
+                                    placeholder="### Concept Definition\nEnter standard solution here..."
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={isSaving}
+                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[11px] uppercase tracking-[0.3em] py-6 rounded-2xl transition-all shadow-[0_15px_30px_rgba(79,70,229,0.3)] disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
+                            >
+                                {isSaving ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> :
+                                    <><RiSave3Line size={18} /> {editingQuestion ? 'Update Protocol' : 'Commit to Protocol'}</>}
+                            </button>
+                        </form>
+                    </motion.div>
+                </div>
+            )}
+        </AnimatePresence>
+    );
+});
+
 const LearnPage = () => {
     const [activeTab, setActiveTab] = useState('general');
     const [searchTerm, setSearchTerm] = useState('');
@@ -417,21 +630,77 @@ const LearnPage = () => {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [dbQuestions, setDbQuestions] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [session, setSession] = useState(null);
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [editingQuestion, setEditingQuestion] = useState(null);
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [timerValue, setTimerValue] = useState(120);
+
+    const handleDeleteQuestion = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this data node? This action is irreversible.')) return;
+        try {
+            const { error } = await supabase
+                .from('interview_questions')
+                .delete()
+                .eq('id', id);
+            if (error) throw error;
+            fetchQuestions();
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+
+    const handleEditQuestion = (item) => {
+        setEditingQuestion(item);
+        setIsAddModalOpen(true);
+    };
 
     useEffect(() => {
-        const fetchQuestions = async () => {
-            try {
+        const checkAdminRole = async () => {
+            if (session?.user) {
                 const { data, error } = await supabase
-                    .from('interview_questions')
-                    .select('*');
-                if (error) throw error;
-                if (data && data.length > 0) setDbQuestions(data);
-            } catch (err) {
-                console.error("Supabase fetch failed:", err);
-            } finally {
-                setIsLoading(false);
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', session.user.id)
+                    .single();
+
+                if (data && data.role === 'admin') {
+                    setIsAdmin(true);
+                } else {
+                    setIsAdmin(false);
+                }
             }
         };
+        checkAdminRole();
+    }, [session]);
+
+    useEffect(() => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    const fetchQuestions = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('interview_questions')
+                .select('*');
+            if (error) throw error;
+            if (data && data.length > 0) setDbQuestions(data);
+        } catch (err) {
+            console.error("Supabase fetch failed:", err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchQuestions();
     }, []);
 
@@ -557,10 +826,11 @@ const LearnPage = () => {
 
     const masteredCount = readIds.filter(id => currentDataSet.some(item => item.id === id)).length;
     const progress = currentDataSet.length > 0 ? (masteredCount / currentDataSet.length) * 100 : 0;
+    const isMeteorActive = isStudyMode && timerValue >= 30 && timerValue <= 60;
 
     return (
         <div className="pt-32 pb-24 px-6 min-h-screen max-w-[1400px] mx-auto font-jakarta">
-            <DecorativeBackground />
+            <DecorativeBackground showMeteors={isMeteorActive} />
 
             {/* Custom scrollbar style */}
             <style>{`
@@ -582,6 +852,22 @@ const LearnPage = () => {
                     -webkit-background-clip: text;
                     -webkit-text-fill-color: transparent;
                 }
+
+                .meteor {
+                    position: absolute;
+                    width: 2px;
+                    height: 150px;
+                    background: linear-gradient(0deg, transparent, #6366f1, #fff);
+                    opacity: 0;
+                    filter: drop-shadow(0 0 10px rgba(99,102,241,0.8));
+                    animation: meteor-fall 2s linear infinite;
+                }
+                @keyframes meteor-fall {
+                    0% { transform: translate(300px, -300px) rotate(-45deg); opacity: 0; }
+                    10% { opacity: 1; }
+                    90% { opacity: 1; }
+                    100% { transform: translate(-1000px, 1000px) rotate(-45deg); opacity: 0; }
+                }
             `}</style>
 
             <motion.div
@@ -600,6 +886,21 @@ const LearnPage = () => {
                     Một lộ trình chuẩn hóa giúp bạn chinh phục mọi thử thách phỏng vấn
                     từ <span className="text-indigo-400 font-bold underline decoration-indigo-500/30">Fresher</span> đến <span className="text-purple-400 font-bold underline decoration-purple-500/30">Middle+</span>
                 </p>
+
+                {isAdmin && (
+                    <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                            setEditingQuestion(null);
+                            setIsAddModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-3 px-8 py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-emerald-400 text-[11px] font-extrabold uppercase tracking-[0.2em] hover:bg-emerald-500/20 transition-all shadow-[0_0_40px_rgba(16,185,129,0.1)] group/add mb-12"
+                    >
+                        <RiAddCircleLine className="text-xl group-hover:rotate-90 transition-transform duration-500" />
+                        Inject New Node
+                    </motion.button>
+                )}
 
                 {/* Global Progress Bar Enhanced */}
                 <div className="max-w-xl mx-auto bg-slate-900/40 p-1.5 rounded-full border border-white/5 shadow-inner relative overflow-hidden group">
@@ -709,7 +1010,7 @@ const LearnPage = () => {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <Timer key={currentIndex} duration={120} />
+                                            <Timer key={currentIndex} duration={120} onTick={setTimerValue} />
                                         </div>
 
                                         <AnimatePresence mode="wait">
@@ -915,6 +1216,9 @@ const LearnPage = () => {
                                         starredIds={starredIds}
                                         toggleStar={toggleStar}
                                         searchTerm={debouncedSearch}
+                                        isAdmin={isAdmin}
+                                        onEdit={handleEditQuestion}
+                                        onDelete={handleDeleteQuestion}
                                     />
                                 </div>
                             </div>
@@ -922,6 +1226,19 @@ const LearnPage = () => {
                     }
                 </>
             )}
+            <QuestionModal
+                isOpen={isAddModalOpen}
+                onClose={() => {
+                    setIsAddModalOpen(false);
+                    setEditingQuestion(null);
+                }}
+                onSave={fetchQuestions}
+                categories={categories}
+                levels={levels}
+                domains={domains}
+                activeTab={activeTab}
+                editingQuestion={editingQuestion}
+            />
         </div >
     );
 };

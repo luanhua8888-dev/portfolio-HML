@@ -1,29 +1,50 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaChevronRight, FaChevronLeft, FaHome, FaUser, FaCode, FaEnvelope, FaFileDownload, FaMusic, FaBook } from 'react-icons/fa';
 import { Link, useLocation } from 'react-router-dom';
+import {
+  RiHome4Line, RiUser3Line, RiCodeSSlashLine, RiMusic2Line,
+  RiGraduationCapLine, RiMailSendLine, RiFileDownloadLine,
+  RiLoginCircleLine, RiLogoutCircleRLine, RiArrowRightSLine, RiArrowLeftSLine
+} from 'react-icons/ri';
+import { supabase } from '../lib/supabaseClient';
 import Magnetic from './Magnetic';
 
 const Navbar = () => {
   const [isExpanded, setIsExpanded] = useState(true); // Default to open
   const [scrolled, setScrolled] = useState(false);
-  const location = useLocation();
+  const [session, setSession] = useState(null);
 
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
     };
     window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('scroll', handleScroll);
+    };
   }, []);
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
   const navLinks = [
-    { name: 'Home', href: '/#home', icon: <FaHome /> },
-    { name: 'About', href: '/#about', icon: <FaUser /> },
-    { name: 'Projects', href: '/#projects', icon: <FaCode /> },
-    { name: 'Music', href: '/music', icon: <FaMusic /> }, // Internal Route
-    { name: 'Learn', href: '/learn', icon: <FaBook /> }, // Internal Route
-    { name: 'Contact', href: '/#contact', icon: <FaEnvelope /> },
+    { name: 'Home', href: '/#home', icon: <RiHome4Line /> },
+    { name: 'About', href: '/#about', icon: <RiUser3Line /> },
+    { name: 'Projects', href: '/#projects', icon: <RiCodeSSlashLine /> },
+    { name: 'Music', href: '/music', icon: <RiMusic2Line /> },
+    { name: 'Learn', href: '/learn', icon: <RiGraduationCapLine /> },
+    { name: 'Contact', href: '/#contact', icon: <RiMailSendLine /> },
   ];
 
   return (
@@ -117,14 +138,15 @@ const Navbar = () => {
                 })}
 
                 {/* Resume Button */}
-                <div className="pl-2 border-l border-slate-700/50 ml-2 mr-2">
+                <div className="pl-2 border-l border-slate-700/50 ml-2">
                   <Magnetic>
                     <a
                       href="/CV_HuaMinhLuan_FrontEnd.pdf"
                       target="_blank"
-                      className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 rounded-full bg-indigo-600/10 border border-indigo-500/30 text-indigo-300 text-xs font-bold uppercase tracking-wider hover:bg-indigo-600 hover:text-white transition-all whitespace-nowrap"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 rounded-full bg-indigo-600/10 border border-indigo-500/30 text-indigo-300 text-[10px] font-extrabold uppercase tracking-[0.2em] hover:bg-indigo-600 hover:text-white transition-all whitespace-nowrap"
                     >
-                      <FaFileDownload className="text-sm" />
+                      <RiFileDownloadLine className="text-sm" />
                       <span className="hidden md:block">Resume</span>
                     </a>
                   </Magnetic>
@@ -134,16 +156,51 @@ const Navbar = () => {
           </AnimatePresence>
         </div>
 
-        {/* Toggle Button */}
-        <motion.button
-          layout="position"
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="ml-1 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0 z-10"
-          whileTap={{ scale: 0.9 }}
-          aria-label={isExpanded ? "Collapse Menu" : "Expand Menu"}
-        >
-          {isExpanded ? <FaChevronRight size={12} /> : <FaChevronLeft size={12} />}
-        </motion.button>
+        {/* Toggle & Auth Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <AnimatePresence>
+            {isExpanded && (
+              <motion.div
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="flex items-center border-l border-slate-700/50 pl-2 ml-1 gap-1"
+              >
+                {session ? (
+                  <Magnetic>
+                    <button
+                      onClick={handleLogout}
+                      className="p-2 rounded-full text-red-400 hover:bg-red-500/10 transition-colors"
+                      title="Logout"
+                    >
+                      <RiLogoutCircleRLine size={18} />
+                    </button>
+                  </Magnetic>
+                ) : (
+                  <Magnetic>
+                    <Link
+                      to="/login"
+                      className={`p-2 rounded-full transition-colors ${location.pathname === '/login' ? 'text-indigo-400 bg-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                      title="Login"
+                    >
+                      <RiLoginCircleLine size={18} />
+                    </Link>
+                  </Magnetic>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <motion.button
+            layout="position"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors z-10"
+            whileTap={{ scale: 0.9 }}
+            aria-label={isExpanded ? "Collapse Menu" : "Expand Menu"}
+          >
+            {isExpanded ? <RiArrowRightSLine size={18} /> : <RiArrowLeftSLine size={18} />}
+          </motion.button>
+        </div>
 
       </motion.nav>
     </div>
